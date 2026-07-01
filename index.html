@@ -55,6 +55,8 @@ const CheckCircleIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><pol
 const InfoIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><circle cx="12" cy="7.6" r="0.9" fill={p.color || "currentColor"} stroke="none" /></Icon>;
 const MoneyIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v10M9.6 9.3c0-1 1-1.8 2.4-1.8s2.4.7 2.4 1.6c0 2.1-4.8 1-4.8 3.1 0 1 1 1.7 2.4 1.7s2.4-.6 2.4-1.6" /></Icon>;
 const LogOutIcon = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16,17 21,12 16,7" /><line x1="21" y1="12" x2="9" y2="12" /></Icon>;
+const CrownIcon = (p) => <Icon {...p}><path d="M12 2l3 6 6-3-2 7H5l-2-7 6 3z" /><path d="M5 18h14v2H5z" /><path d="M7 16l-2 2m12-2l2 2" /></Icon>;
+const LockIcon = (p) => <Icon {...p}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></Icon>;
 const Spinner = ({ size = 28, color = "#2F6B4F" }) => (
   <div style={{ width: size, height: size, borderRadius: "50%", border: `3px solid ${color}33`, borderTopColor: color, animation: "spin 0.8s linear infinite" }} />
 );
@@ -73,7 +75,7 @@ const COLORS = {
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmt$ = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const DEFAULT_SETTINGS = { mileageRate: 0.7, seTaxRate: 0.153, incomeTaxRate: 0.12, state: "" };
+const DEFAULT_SETTINGS = { mileageRate: 0.7, seTaxRate: 0.153, incomeTaxRate: 0.12, state: "", tier: "free" };
 const getQuarter = (d) => Math.floor(new Date(d + "T00:00:00").getMonth() / 3) + 1;
 const getMonthIndex = (d) => new Date(d + "T00:00:00").getMonth();
 
@@ -107,7 +109,7 @@ async function fetchExpenses(userId) {
 async function fetchSettings(userId) {
   const { data, error } = await sb.from("user_settings").select("*").eq("user_id", userId).maybeSingle();
   if (error || !data) return DEFAULT_SETTINGS;
-  return { mileageRate: Number(data.mileage_rate), seTaxRate: Number(data.se_tax_rate), incomeTaxRate: Number(data.income_tax_rate), state: data.state || "" };
+  return { mileageRate: Number(data.mileage_rate), seTaxRate: Number(data.se_tax_rate), incomeTaxRate: Number(data.income_tax_rate), state: data.state || "", tier: data.tier || "free" };
 }
 async function insertIncome(userId, e) {
   const { data, error } = await sb.from("income_entries").insert([{ user_id: userId, date: e.date, source: e.source, gross: e.gross, fees: e.fees }]).select().single();
@@ -120,7 +122,7 @@ async function insertExpense(userId, e) {
 async function deleteIncomeRow(id) { await sb.from("income_entries").delete().eq("id", id); }
 async function deleteExpenseRow(id) { await sb.from("expense_entries").delete().eq("id", id); }
 async function upsertSettings(userId, s) {
-  await sb.from("user_settings").upsert({ user_id: userId, mileage_rate: s.mileageRate, se_tax_rate: s.seTaxRate, income_tax_rate: s.incomeTaxRate, state: s.state });
+  await sb.from("user_settings").upsert({ user_id: userId, mileage_rate: s.mileageRate, se_tax_rate: s.seTaxRate, income_tax_rate: s.incomeTaxRate, state: s.state, tier: s.tier || "free" });
 }
 async function deleteAllData(userId) {
   await sb.from("income_entries").delete().eq("user_id", userId);
@@ -328,10 +330,10 @@ function MainApp({ session }) {
     <div className="min-h-screen pb-24" style={{ background: COLORS.bg, color: COLORS.text }}>
       <BrandHeader subtitle="Know what to keep. Know what to set aside." />
       <main className="px-5 max-w-md mx-auto">
-        {tab === "home" && <HomeTab totals={totals} quarterly={quarterly} monthly={monthly} income={income} expenses={expenses} />}
+        {tab === "home" && <HomeTab totals={totals} quarterly={quarterly} monthly={monthly} income={income} expenses={expenses} isPro={settings.tier === "pro"} />}
         {tab === "earned" && <EarnedTab income={income} onAdd={addIncome} onRemove={removeIncome} />}
         {tab === "spent" && <SpentTab expenses={expenses} onAdd={addExpense} onRemove={removeExpense} mileageRate={settings.mileageRate} />}
-        {tab === "settings" && <SettingsTab settings={settings} onSave={updateSettings} onReset={resetAll} email={session.user.email} onLogout={logout} />}
+        {tab === "settings" && <SettingsTab settings={settings} onSave={updateSettings} onReset={resetAll} email={session.user.email} onLogout={logout} isPro={settings.tier === "pro"} />}
       </main>
 
       {toast && (
@@ -367,7 +369,7 @@ function FieldLabel({ children }) { return <label className="block text-sm font-
 const inputStyle = { border: `1.5px solid ${COLORS.border}`, background: "#fff" };
 
 // ================================== Home tab ==================================
-function HomeTab({ totals, quarterly, monthly, income, expenses }) {
+function HomeTab({ totals, quarterly, monthly, income, expenses, isPro }) {
   const [breakdownView, setBreakdownView] = useState("quarter");
   const total = totals.netProfit > 0 ? totals.netProfit : 1;
   const keepPct = Math.round((totals.keepForYou / total) * 100);
@@ -454,11 +456,70 @@ function HomeTab({ totals, quarterly, monthly, income, expenses }) {
           </div>
         )}
       </Card>
+
+      {!isPro && <ProUpgradeBanner />}
+      {isPro && (
+        <Card>
+          <p className="text-sm font-bold mb-2 flex items-center gap-1.5" style={{ color: COLORS.tax }}><CrownIcon size={16} color={COLORS.tax} /> Pro features</p>
+          <p className="text-sm mb-3" style={{ color: COLORS.sub }}>You can export your full year&apos;s data as a CSV or a tax-ready quarterly report.</p>
+          <button className="w-full rounded-xl py-2.5 font-bold text-sm text-white mb-2" style={{ background: COLORS.tax }}>Export as CSV</button>
+          <button className="w-full rounded-xl py-2.5 font-bold text-sm" style={{ border: `1.5px solid ${COLORS.tax}`, color: COLORS.tax }}>Download quarterly report (PDF)</button>
+        </Card>
+      )}
     </div>
   );
 }
 
-// ================================= Earned tab =================================
+function ProUpgradeBanner() {
+  return (
+    <Card style={{ border: `1.5px dashed ${COLORS.earned}`, background: COLORS.earnedSoft }}>
+      <div className="flex items-center gap-2 mb-2">
+        <CrownIcon size={18} color={COLORS.earned} />
+        <span className="font-extrabold text-sm" style={{ color: COLORS.earned }}>Unlock SetAside Pro</span>
+      </div>
+      <p className="text-sm mb-3" style={{ color: COLORS.sub }}>
+        Export your data as CSV, download quarterly tax-ready PDF reports, and track multiple income streams.
+      </p>
+      <button className="w-full rounded-xl py-2.5 font-bold text-sm text-white" style={{ background: COLORS.earned }}>
+        Upgrade for $4.99/mo
+      </button>
+    </Card>
+  );
+}
+
+function ProUpgradeCard({ isPro }) {
+  return (
+    <Card style={isPro ? { border: `1px solid ${COLORS.earned}` } : { border: `1.5px dashed ${COLORS.earned}`, background: COLORS.earnedSoft }}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <CrownIcon size={18} color={isPro ? COLORS.earned : COLORS.earned} />
+          <span className="font-extrabold text-sm" style={{ color: COLORS.earned }}>SetAside {isPro ? "Pro" : "Free"}</span>
+        </div>
+        {!isPro && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: COLORS.earned, color: "#fff" }}>FREE</span>}
+        {isPro && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: COLORS.earned, color: "#fff" }}>PRO</span>}
+      </div>
+      {isPro ? (
+        <p className="text-sm" style={{ color: COLORS.sub }}>
+          You&apos;re on the Pro plan! You get CSV export, quarterly PDF reports, and multiple income streams.
+        </p>
+      ) : (
+        <>
+          <div className="text-sm space-y-1 mb-3 mt-1">
+            <p className="flex items-center gap-2"><CheckCircleIcon size={14} color={COLORS.earned} /> Unlimited income &amp; expense tracking</p>
+            <p className="flex items-center gap-2"><LockIcon size={14} color={COLORS.sub} strokeWidth={2.5} /> Export to CSV</p>
+            <p className="flex items-center gap-2"><LockIcon size={14} color={COLORS.sub} strokeWidth={2.5} /> Quarterly tax-ready PDF reports</p>
+            <p className="flex items-center gap-2"><LockIcon size={14} color={COLORS.sub} strokeWidth={2.5} /> Multiple income streams</p>
+          </div>
+          <button className="w-full rounded-xl py-2.5 font-bold text-sm text-white" style={{ background: COLORS.earned }}>
+            Upgrade to Pro &mdash; $4.99/mo
+          </button>
+          <p className="text-xs mt-2 text-center" style={{ color: COLORS.sub }}>Cancel anytime. No hidden fees.</p>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function EarnedTab({ income, onAdd, onRemove }) {
   const [date, setDate] = useState(todayStr());
   const [source, setSource] = useState("");
@@ -674,7 +735,7 @@ function StateTaxCard({ settings, onSave }) {
 }
 
 // ================================ Settings tab ================================
-function SettingsTab({ settings, onSave, onReset, email, onLogout }) {
+function SettingsTab({ settings, onSave, onReset, email, onLogout, isPro }) {
   const [mileageRate, setMileageRate] = useState(settings.mileageRate);
   const [seTaxRate, setSeTaxRate] = useState(settings.seTaxRate * 100);
   const [incomeTaxRate, setIncomeTaxRate] = useState(settings.incomeTaxRate * 100);
@@ -695,6 +756,8 @@ function SettingsTab({ settings, onSave, onReset, email, onLogout }) {
           </button>
         </div>
       </Card>
+
+      <ProUpgradeCard isPro={isPro} />
 
       <Card>
         <h2 className="text-lg font-extrabold mb-1">Settings</h2>
